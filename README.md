@@ -107,55 +107,35 @@ chmod 600 /root/puli_gps_secrets
 
 ## 3. Install the Service
 
-Create the service file:
+Make sure previous instances have been stopped and cleaned up
 
 ```
-vi /etc/init.d/puli_gps
-```
-
-Paste:
-
-```
-#!/bin/sh /etc/rc.common
-
-START=99
-STOP=01
-
-USE_PROCD=1
-SERVICE_NAME="puli_gps"
-
-start_service() {
-    procd_open_instance
-    procd_set_param command /root/puli_gps_mqtt.sh
-    procd_set_param respawn 5000 1 0
-    procd_close_instance
-}
-```
-
-Save:
+pkill -f puli_gps_mqtt.sh 2>/dev/null || true
+sleep 0.3
+pkill -9 -f puli_gps_mqtt.sh 2>/dev/null || true
+rm -f /var/run/puli_gps_mqtt.pid
+rmdir /var/run/puli_gps_mqtt.lock 2>/dev/null || true
 
 ```
-ESC
-:wq
-```
 
-Make executable:
+Get the files and start the service
 
 ```
-chmod +x /etc/init.d/puli_gps
-```
+# fetch the service script and the main script from your repo (raw URLs)
+curl -fsSL https://raw.githubusercontent.com/skiplee/Puli-AX-publish-location-mqtt/main/puli_gps -o /etc/init.d/puli_gps
+curl -fsSL https://raw.githubusercontent.com/skiplee/Puli-AX-publish-location-mqtt/main/puli_gps_mqtt.sh -o /root/puli_gps_mqtt.sh
 
-Enable at boot:
-
-```
+# make executable, enable at boot, and start now
+chmod +x /etc/init.d/puli_gps /root/puli_gps_mqtt.sh
 /etc/init.d/puli_gps enable
+/etc/init.d/puli_gps start 
+
+# quick verification
+sleep 0.4
+ps | grep puli_gps_mqtt.sh | grep -v grep || true
+logread | tail -n 50
 ```
 
-Start immediately:
-
-```
-/etc/init.d/puli_gps start
-```
 
 ---
 
