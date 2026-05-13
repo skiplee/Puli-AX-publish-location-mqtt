@@ -1,4 +1,17 @@
 #!/bin/sh
+# PID file guard
+PIDFILE="/var/run/puli_gps_mqtt.pid"
+if [ -f "$PIDFILE" ]; then
+  if kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+    echo "Already running (PID $(cat $PIDFILE)). Exiting." >&2
+    exit 0
+  else
+    rm -f "$PIDFILE"
+  fi
+fi
+echo $$ > "$PIDFILE"
+trap 'rm -f "$PIDFILE"; exit' INT TERM EXIT
+
 # puli_gps_mqtt.sh - GNSS init + safe polling + troubleshooting mode
 # Secrets file must define MQTT_HOST MQTT_USER MQTT_PASS MQTT_TOPIC
 . /root/puli_gps_secrets
@@ -9,7 +22,10 @@ INTERVAL=5            # poll interval in seconds (used in troubleshooting mode)
 HEARTBEAT=300         # publish at least this often (seconds)
 STATE_FILE="/tmp/last_gps"
 LOG="/tmp/gps_poll.log"
-TROUBLESHOOTING=1     # 1 = publish every INTERVAL regardless of filters; 0 = normal behavior
+
+# 1 = publish every INTERVAL regardless of filters; 0 = normal behavior
+TROUBLESHOOTING=1     
+
 GNSS_INIT_INTERVAL=300 # re-run GNSS init every N seconds
 
 # ===== Helpers =====
