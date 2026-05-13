@@ -60,6 +60,13 @@ Make it executable:
 ```
 chmod +x /root/puli_gps_mqtt.sh
 ```
+Or; pull it from github and install it directly (again in ssh terminal)
+
+```
+# fetch updated script and make executable
+curl -fsSL https://raw.githubusercontent.com/skiplee/Puli-AX-publish-location-mqtt/main/puli_gps_mqtt.sh -o /root/puli_gps_mqtt.sh
+chmod +x /root/puli_gps_mqtt.sh
+```
 
 ---
 
