@@ -1,16 +1,33 @@
 #!/bin/sh
-# PID file guard
+#!/bin/sh
+# atomic lock to prevent duplicate starts
+LOCKDIR="/var/run/puli_gps_mqtt.lock"
 PIDFILE="/var/run/puli_gps_mqtt.pid"
-if [ -f "$PIDFILE" ]; then
-  if kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+
+# Acquire lock atomically
+if mkdir "$LOCKDIR" 2>/dev/null; then
+  echo $$ > "$PIDFILE"
+  trap 'rm -f "$PIDFILE"; rmdir "$LOCKDIR"; exit' INT TERM EXIT
+else
+  # If lock exists, check if pid is alive
+  if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
     echo "Already running (PID $(cat $PIDFILE)). Exiting." >&2
     exit 0
+  fi
+  # stale lock: remove and try once
+  rmdir "$LOCKDIR" 2>/dev/null || true
+  if mkdir "$LOCKDIR" 2>/dev/null; then
+    echo $$ > "$PIDFILE"
+    trap 'rm -f "$PIDFILE"; rmdir "$LOCKDIR"; exit' INT TERM EXIT
   else
-    rm -f "$PIDFILE"
+    echo "Could not acquire lock; exiting." >&2
+    exit 1
   fi
 fi
-echo $$ > "$PIDFILE"
-trap 'rm -f "$PIDFILE"; exit' INT TERM EXIT
+
+# Ensure script cannot be stopped by job-control reading from tty
+# (When starting interactively, always start with stdin closed: </dev/null)
+
 
 # puli_gps_mqtt.sh - GNSS init + safe polling + troubleshooting mode
 # Secrets file must define MQTT_HOST MQTT_USER MQTT_PASS MQTT_TOPIC
