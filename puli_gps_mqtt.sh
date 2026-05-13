@@ -26,7 +26,9 @@ else
 fi
 
 # Ensure script cannot be stopped by job-control reading from tty
-# (When starting interactively, always start with stdin closed: </dev/null)
+# (When starting interactively, always start with stdin closed: </dev/null) using this command:
+# setsid sh /root/puli_gps_mqtt.sh >/tmp/puli_gps_mqtt.out 2>&1 </dev/null &
+
 
 
 # puli_gps_mqtt.sh - GNSS init + safe polling + troubleshooting mode
