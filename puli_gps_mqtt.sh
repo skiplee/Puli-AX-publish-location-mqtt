@@ -70,13 +70,7 @@ init_gnss() {
 
 # ===== Device holder check =====
 device_held_by() {
-  for pid in $(ls /proc | grep -E '^[0-9]+$'); do
-    if ls -l /proc/$pid/fd 2>/dev/null | grep -q "$(basename $GPS_DEV)"; then
-      tr '\0' ' ' < /proc/$pid/cmdline
-      return 0
-    fi
-  done
-  return 1
+    fuser "$GPS_DEV" 2>/dev/null
 }
 
 # ===== Start =====
