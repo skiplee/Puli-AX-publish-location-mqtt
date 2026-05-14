@@ -1,28 +1,13 @@
 #!/bin/sh
 
-# atomic lock to prevent duplicate starts
-LOCKDIR="/var/run/puli_gps_mqtt.lock"
-PIDFILE="/var/run/puli_gps_mqtt.pid"
-
-# Acquire lock atomically
-if mkdir "$LOCKDIR" 2>/dev/null; then
-  echo $$ > "$PIDFILE"
-  trap 'rm -f "$PIDFILE"; rmdir "$LOCKDIR"; exit' INT TERM EXIT
-else
-  # If lock exists, check if pid is alive
-  if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-    echo "Already running (PID $(cat $PIDFILE)). Exiting." >&2
-    exit 0
-  fi
-  # stale lock: remove and try once
-  rmdir "$LOCKDIR" 2>/dev/null || true
-  if mkdir "$LOCKDIR" 2>/dev/null; then
-    echo $$ > "$PIDFILE"
-    trap 'rm -f "$PIDFILE"; rmdir "$LOCKDIR"; exit' INT TERM EXIT
-  else
-    echo "Could not acquire lock; exiting." >&2
-    exit 1
-  fi
+# --------------------------------------------------------------------
+# REPLACEMENT FOR ATOMIC LOCK (NO DIRECTORY LOCK, NO RACE CONDITIONS)
+# --------------------------------------------------------------------
+# If another instance of this script is running, exit immediately.
+# Exclude our own PID ($$) from the match.
+if pgrep -f puli_gps_mqtt.sh | grep -v "$$" >/dev/null 2>&1; then
+  echo "Already running. Exiting." >&2
+  exit 0
 fi
 
 # Ensure script cannot be stopped by job-control reading from tty
