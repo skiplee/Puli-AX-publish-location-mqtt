@@ -1,5 +1,5 @@
 #!/bin/sh
-#!/bin/sh
+
 # atomic lock to prevent duplicate starts
 LOCKDIR="/var/run/puli_gps_mqtt.lock"
 PIDFILE="/var/run/puli_gps_mqtt.pid"
