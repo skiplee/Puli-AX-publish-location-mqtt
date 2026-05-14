@@ -5,7 +5,7 @@
 # --------------------------------------------------------------------
 # If another instance of this script is running, exit immediately.
 # Exclude our own PID ($$) from the match.
-if pgrep -f puli_gps_mqtt.sh | grep -v "$$" >/dev/null 2>&1; then
+if pgrep -f "/root/puli_gps_mqtt.sh" | grep -v "$$" >/dev/null 2>&1; then
   echo "Already running. Exiting." >&2
   exit 0
 fi
@@ -14,9 +14,6 @@ fi
 # (When starting interactively, always start with stdin closed: </dev/null) using this command:
 # setsid sh /root/puli_gps_mqtt.sh >/tmp/puli_gps_mqtt.out 2>&1 </dev/null &
 
-
-
-# puli_gps_mqtt.sh - GNSS init + safe polling + troubleshooting mode
 # Secrets file must define MQTT_HOST MQTT_USER MQTT_PASS MQTT_TOPIC
 . /root/puli_gps_secrets
 
@@ -41,15 +38,13 @@ publish() {
 }
 
 distance_m() {
-  LAT1=$1 LON1=$2 LAT2=$3 LON2=$4
-  awk -v lat1="$LAT1" -v lon1="$LON1" -v lat2="$LAT2" -v lon2="$LON2" '
-    function rad(x){return x*3.1415926535/180}
-    {
-      dlat = rad(lat2-lat1)
-      dlon = rad(lon2-lon1)
-      a = sin(dlat/2)^2 + cos(rad(lat1))*cos(rad(lat2))*sin(dlon/2)^2
-      c = 2*atan2(sqrt(a), sqrt(1-a))
-      print 6371000*c
+  awk -v lat1="$1" -v lon1="$2" -v lat2="$3" -v lon2="$4" '
+    BEGIN {
+      pi = 3.141592653589793
+      r = 6371000
+      x = (lon2-lon1) * pi/180 * cos((lat1+lat2)*pi/360)
+      y = (lat2-lat1) * pi/180
+      print sqrt(x*x + y*y) * r
     }'
 }
 
@@ -61,20 +56,15 @@ safe_read_qgpsloc() {
     echo "$RAW"
     return 0
   fi
-  BYTES=$(timeout 1 dd if="$GPS_DEV" bs=1 count=256 2>/dev/null)
+  BYTES=$(timeout 1 dd if="$GPS_DEV" bs=1 count=128 2>/dev/null)
   echo "$BYTES" | grep -m 1 "+QGPSLOC" 2>/dev/null || true
 }
 
 # ===== GNSS init (use the verified start command) =====
 init_gnss() {
   echo "$(date -Is) GNSS init" >> "$LOG"
-  # disable echo, enable GNSS, give modem a short settle time
-  echo -e "ATE0\r" > "$GPS_DEV"
-  sleep 0.2
-  echo -e "AT+QGPS=1\r" > "$GPS_DEV"
+  printf "ATE0\rAT+QGPS=1\rAT+QGPS?\r" > "$GPS_DEV"
   sleep 1
-  # quick confirm (non-blocking)
-  echo -e "AT+QGPS?\r" > "$GPS_DEV"
   timeout 1 dd if="$GPS_DEV" bs=1 count=128 2>/dev/null | hexdump -C >> "$LOG" 2>/dev/null || true
 }
 
