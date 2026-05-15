@@ -1,18 +1,14 @@
 #!/bin/sh
 
-# --------------------------------------------------------------------
-# REPLACEMENT FOR ATOMIC LOCK (NO DIRECTORY LOCK, NO RACE CONDITIONS)
-# --------------------------------------------------------------------
+# 1 = publish every INTERVAL regardless of filters; 0 = normal behavior
+TROUBLESHOOTING=1     
+
 # If another instance of this script is running, exit immediately.
 # Exclude our own PID ($$) from the match.
 if pgrep -f "/root/puli_gps_mqtt.sh" | grep -v "$$" >/dev/null 2>&1; then
   echo "Already running. Exiting." >&2
   exit 0
 fi
-
-# Ensure script cannot be stopped by job-control reading from tty
-# (When starting interactively, always start with stdin closed: </dev/null) using this command:
-# setsid sh /root/puli_gps_mqtt.sh >/tmp/puli_gps_mqtt.out 2>&1 </dev/null &
 
 # Secrets file must define MQTT_HOST MQTT_USER MQTT_PASS MQTT_TOPIC
 . /root/puli_gps_secrets
@@ -23,12 +19,9 @@ rm -f /tmp/puli_last.json
 # ===== Configuration =====
 GPS_DEV="/dev/ttyUSB2"
 INTERVAL=5            # poll interval in seconds (used in troubleshooting mode)
-HEARTBEAT=300         # publish at least this often (seconds)
+HEARTBEAT=60         # publish at least this often (seconds)
 STATE_FILE="/tmp/last_gps"
 LOG="/tmp/gps_poll.log"
-
-# 1 = publish every INTERVAL regardless of filters; 0 = normal behavior
-TROUBLESHOOTING=1     
 
 GNSS_INIT_INTERVAL=300 # re-run GNSS init every N seconds
 
