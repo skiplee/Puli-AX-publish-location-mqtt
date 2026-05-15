@@ -13,15 +13,15 @@ fi
 # Secrets file must define MQTT_HOST MQTT_USER MQTT_PASS MQTT_TOPIC
 . /root/puli_gps_secrets
 
-# on startup force getting a new fix and sending new message by deleting the lkg file
-rm -f /tmp/puli_last.json
-
 # ===== Configuration =====
 GPS_DEV="/dev/ttyUSB2"
 INTERVAL=5            # poll interval in seconds (used in troubleshooting mode)
 HEARTBEAT=60         # publish at least this often (seconds)
 STATE_FILE="/tmp/last_gps"
 LOG="/tmp/gps_poll.log"
+
+# on startup force getting a new fix and sending new message by deleting the lkg file
+rm -f "$STATEPFILE"
 
 GNSS_INIT_INTERVAL=300 # re-run GNSS init every N seconds
 
