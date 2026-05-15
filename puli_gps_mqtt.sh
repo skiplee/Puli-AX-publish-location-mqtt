@@ -21,7 +21,7 @@ STATE_FILE="/tmp/last_gps"
 LOG="/tmp/gps_poll.log"
 
 # on startup force getting a new fix and sending new message by deleting the lkg file
-rm -f "$STATEFILE"
+rm -f "$STATE_FILE"
 
 GNSS_INIT_INTERVAL=300 # re-run GNSS init every N seconds
 
