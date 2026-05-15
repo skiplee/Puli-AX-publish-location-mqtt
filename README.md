@@ -81,7 +81,7 @@ vi /root/puli_gps_secrets
 Add your MQTT settings:
 
 ```
-MQTT_HOST="homeassistant"
+MQTT_HOST="host ip or dns"
 MQTT_USER="youruser"
 MQTT_PASS="yourpass"
 MQTT_TOPIC="puli/gps"
@@ -128,7 +128,7 @@ curl -fsSL https://raw.githubusercontent.com/skiplee/Puli-AX-publish-location-mq
 # make executable, enable at boot, and start now
 chmod +x /etc/init.d/puli_gps /root/puli_gps_mqtt.sh
 /etc/init.d/puli_gps enable
-/etc/init.d/puli_gps start 
+/etc/init.d/puli_gps restart 
 
 # quick verification
 sleep 0.4
