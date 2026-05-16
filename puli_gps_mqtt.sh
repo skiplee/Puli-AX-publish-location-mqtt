@@ -41,7 +41,7 @@ distance_m() {
     }'
 }
 
-# Non-blocking read for +QGPSLOC (arg = seconds to wait for grep)
+# Non-blocking read for +QGPSLOC (arg = seconds to wait)
 safe_read_qgpsloc() {
   # NEW: use awk instead of grep — never misses partial lines
   timeout "${1:-3}" awk '/\+QGPSLOC/ {print; exit}' < "$GPS_DEV"
@@ -51,6 +51,14 @@ safe_read_qgpsloc() {
 discard_unsolicited_fix() {
   timeout 1 dd if="$GPS_DEV" bs=512 count=8 >/dev/null 2>&1
   timeout 1 awk '/\+QGPSLOC/ {print; exit}' < "$GPS_DEV" >/dev/null 2>&1
+}
+
+# NEW: read two QGPSLOC lines — discard first, return second
+read_two_qgpsloc() {
+  # read unsolicited
+  timeout 2 awk '/\+QGPSLOC/ {print; exit}' < "$GPS_DEV" >/dev/null 2>&1
+  # read solicited
+  timeout 3 awk '/\+QGPSLOC/ {print; exit}' < "$GPS_DEV"
 }
 
 # ===== GNSS init (unchanged, assumes modem already in good state) =====
@@ -95,9 +103,11 @@ while true; do
   # flush any stale data before requesting a new fix
   timeout 1 dd if="$GPS_DEV" bs=512 count=8 >/dev/null 2>&1   # NEW: full flush
 
-  # request a location (non-blocking)
+  # request a location
   echo -e "AT+QGPSLOC=2\r" > "$GPS_DEV"
-  RAW=$(safe_read_qgpsloc 3)
+
+  # NEW: read two QGPSLOC lines — discard unsolicited, use solicited
+  RAW=$(read_two_qgpsloc)
 
   TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   NOW=$(date +%s)
