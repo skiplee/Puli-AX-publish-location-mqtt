@@ -80,9 +80,9 @@ while true; do
                 SAT=$(echo "$GPS_CSV" | cut -d',' -f11)
 
                 # ISO 8601 Timestamp
-                TS="20${D_RAW:4:2}-${D_RAW:2:2}-${D_RAW:0:2}T${T_RAW:0:2}:${T_RAW:2:2}:${T_RAW:4:2}Z"
+                TS="20$(echo $D_RAW | cut -c5-6)-$(echo $D_RAW | cut -c3-4)-$(echo $D_RAW | cut -c1-2)T$(echo $T_RAW | cut -c1-2):$(echo $T_RAW | cut -c3-4):$(echo $T_RAW | cut -c5-6)Z"
                 
-                PAYLOAD="{\"ts\":\"$TS\",\"lat\":$CUR_LAT,\"lon\":$CUR_LON,\"alt\":$ALT,\"speed\":$CUR_SPD,\"course\":$CRS,\"sat\":$SAT}"
+                PAYLOAD="{\"ts\":\"$TS\",\"lat\":\"$CUR_LAT\",\"lon\":\"$CUR_LON\",\"alt\":\"$ALT\",\"speed\":\"$CUR_SPD\",\"course\":\"$CRS\",\"sat\":\"$SAT\"}"
                 
                 if mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -u "$MQTT_USER" -P "$MQTT_PASS" -t "$MQTT_TOPIC" -m "$PAYLOAD"; then
                     LAST_LAT=$CUR_LAT
