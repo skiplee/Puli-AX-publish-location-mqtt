@@ -37,16 +37,32 @@ should_publish() {
     awk -v lat1="$lat1" -v lon1="$lon1" -v lat2="$lat2" -v lon2="$lon2" \
         -v speed="$speed" -v min_dist="$min_dist" -v min_speed="$min_speed" '
     BEGIN {
+        # Speed trigger (Fastest check)
         if (speed > min_speed) {
             print "1";
             exit;
         }
+        
+        # Function to convert DDMM.MMMMMN/E to pure decimal degrees
+        sub(/[^0-9.]/, "", lat1); sub(/[^0-9.]/, "", lon1);
+        sub(/[^0-9.]/, "", lat2); sub(/[^0-9.]/, "", lon2);
+
+        # Parse Latitudes (2 digits for degrees, rest is minutes)
+        deg1 = substr(lat1, 1, 2); min1 = substr(lat1, 3); dec_lat1 = deg1 + (min1 / 60);
+        deg2 = substr(lat2, 1, 2); min2 = substr(lat2, 3); dec_lat2 = deg2 + (min2 / 60);
+
+        # Parse Longitudes (3 digits for degrees, rest is minutes)
+        deg_lon1 = substr(lon1, 1, 3); min_lon1 = substr(lon1, 4); dec_lon1 = deg_lon1 + (min_lon1 / 60);
+        deg_lon2 = substr(lon2, 1, 3); min_lon2 = substr(lon2, 4); dec_lon2 = deg_lon2 + (min_lon2 / 60);
+
+        # Distance trigger (Trig check using true decimal degrees)
         PI = 3.1415926535;
         deg2meters = 111319;
-        rad = lat2 * (PI / 180);
+        rad = dec_lat2 * (PI / 180);
         lonscl = cos(rad);
-        dy = (lat2 - lat1) * deg2meters;
-        dx = (lon2 - lon1) * deg2meters * lonscl;
+        
+        dy = (dec_lat2 - dec_lat1) * deg2meters;
+        dx = (dec_lon2 - dec_lon1) * deg2meters * lonscl;
         dist = sqrt((dx*dx) + (dy*dy));
 
         if (dist >= min_dist) print "1";
