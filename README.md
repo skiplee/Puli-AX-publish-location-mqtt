@@ -131,7 +131,7 @@ chmod +x /etc/init.d/puli_gps /root/puli_gps_mqtt.sh
 /etc/init.d/puli_gps restart 
 
 # quick verification
-sleep 0.4
+sleep 4
 ps | grep puli_gps_mqtt.sh | grep -v grep || true
 logread | tail -n 50
 ```
