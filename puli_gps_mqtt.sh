@@ -41,27 +41,19 @@ distance_m() {
     }'
 }
 
-# Non-blocking read for +QGPSLOC (arg = seconds to wait)
+# Non-blocking read for +QGPSLOC (arg = seconds to wait for grep)
 safe_read_qgpsloc() {
-  # NEW: use awk instead of grep — never misses partial lines
-  timeout "${1:-3}" awk '/\+QGPSLOC/ {print; exit}' < "$GPS_DEV"
+  TIMEOUT_SEC=${1:-3}
+  RAW=$(timeout "$TIMEOUT_SEC" grep -m 1 "+QGPSLOC" "$GPS_DEV" 2>/dev/null)
+  if [ -n "$RAW" ]; then
+    echo "$RAW"
+    return 0
+  fi
+  BYTES=$(timeout 1 dd if="$GPS_DEV" bs=1 count=128 2>/dev/null)
+  echo "$BYTES" | grep -m 1 "+QGPSLOC" 2>/dev/null || true
 }
 
-# NEW: ignore the first unsolicited +QGPSLOC after GNSS starts
-discard_unsolicited_fix() {
-  timeout 1 dd if="$GPS_DEV" bs=512 count=8 >/dev/null 2>&1
-  timeout 1 awk '/\+QGPSLOC/ {print; exit}' < "$GPS_DEV" >/dev/null 2>&1
-}
-
-# NEW: read two QGPSLOC lines — discard first, return second
-read_two_qgpsloc() {
-  # read unsolicited
-  timeout 2 awk '/\+QGPSLOC/ {print; exit}' < "$GPS_DEV" >/dev/null 2>&1
-  # read solicited
-  timeout 3 awk '/\+QGPSLOC/ {print; exit}' < "$GPS_DEV"
-}
-
-# ===== GNSS init (unchanged, assumes modem already in good state) =====
+# ===== GNSS init (use the verified start command) =====
 init_gnss() {
   echo "$(date -Is) GNSS init" >> "$LOG"
   printf "ATE0\rAT+QGPS=1\rAT+QGPS?\r" > "$GPS_DEV"
@@ -77,7 +69,6 @@ device_held_by() {
 # ===== Start =====
 echo "START $(date -Is)" >> "$LOG"
 init_gnss
-discard_unsolicited_fix   # NEW: ignore unsolicited fix after GNSS start
 LAST_HEARTBEAT=$(date +%s)
 LAST_GNSS_INIT=$(date +%s)
 
@@ -88,7 +79,6 @@ while true; do
   # periodic GNSS re-init
   if [ $((NOW - LAST_GNSS_INIT)) -ge $GNSS_INIT_INTERVAL ]; then
     init_gnss
-    discard_unsolicited_fix   # NEW
     LAST_GNSS_INIT=$NOW
   fi
 
@@ -100,14 +90,9 @@ while true; do
     continue
   fi
 
-  # flush any stale data before requesting a new fix
-  timeout 1 dd if="$GPS_DEV" bs=512 count=8 >/dev/null 2>&1   # NEW: full flush
-
-  # request a location
+  # request a location (non-blocking)
   echo -e "AT+QGPSLOC=2\r" > "$GPS_DEV"
-
-  # NEW: read two QGPSLOC lines — discard unsolicited, use solicited
-  RAW=$(read_two_qgpsloc)
+  RAW=$(safe_read_qgpsloc 3)
 
   TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   NOW=$(date +%s)
