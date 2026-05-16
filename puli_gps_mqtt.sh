@@ -43,14 +43,14 @@ distance_m() {
 
 # Non-blocking read for +QGPSLOC (arg = seconds to wait for grep)
 safe_read_qgpsloc() {
-  TIMEOUT_SEC=${1:-3}
-  RAW=$(timeout "$TIMEOUT_SEC" grep -m 1 "+QGPSLOC" "$GPS_DEV" 2>/dev/null)
-  if [ -n "$RAW" ]; then
-    echo "$RAW"
-    return 0
-  fi
-  BYTES=$(timeout 1 dd if="$GPS_DEV" bs=1 count=128 2>/dev/null)
-  echo "$BYTES" | grep -m 1 "+QGPSLOC" 2>/dev/null || true
+  # NEW: use awk instead of grep — never misses partial lines
+  timeout "${1:-3}" awk '/\+QGPSLOC/ {print; exit}' < "$GPS_DEV"
+}
+
+# NEW: ignore the first unsolicited +QGPSLOC after GNSS starts
+discard_unsolicited_fix() {
+  timeout 1 dd if="$GPS_DEV" bs=512 count=8 >/dev/null 2>&1
+  timeout 1 awk '/\+QGPSLOC/ {print; exit}' < "$GPS_DEV" >/dev/null 2>&1
 }
 
 # ===== GNSS init (unchanged, assumes modem already in good state) =====
@@ -69,6 +69,7 @@ device_held_by() {
 # ===== Start =====
 echo "START $(date -Is)" >> "$LOG"
 init_gnss
+discard_unsolicited_fix   # NEW: ignore unsolicited fix after GNSS start
 LAST_HEARTBEAT=$(date +%s)
 LAST_GNSS_INIT=$(date +%s)
 
@@ -79,6 +80,7 @@ while true; do
   # periodic GNSS re-init
   if [ $((NOW - LAST_GNSS_INIT)) -ge $GNSS_INIT_INTERVAL ]; then
     init_gnss
+    discard_unsolicited_fix   # NEW
     LAST_GNSS_INIT=$NOW
   fi
 
@@ -91,7 +93,7 @@ while true; do
   fi
 
   # flush any stale data before requesting a new fix
-  timeout 1 dd if="$GPS_DEV" bs=256 count=1 >/dev/null 2>&1
+  timeout 1 dd if="$GPS_DEV" bs=512 count=8 >/dev/null 2>&1   # NEW: full flush
 
   # request a location (non-blocking)
   echo -e "AT+QGPSLOC=2\r" > "$GPS_DEV"
