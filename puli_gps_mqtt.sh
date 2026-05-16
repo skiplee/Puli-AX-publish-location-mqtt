@@ -1,5 +1,11 @@
 #!/bin/sh
 
+# Essential for the background service to find gl_modem/mosquitto_pub
+export PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Essential to prevent serial bus lockups on service restart
+sleep 3
+
 # --- Configuration & Secrets ---
 SECRETS_FILE="/root/puli_gps_secrets"
 MODEM_BUS="1-1.2"
