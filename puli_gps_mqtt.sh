@@ -3,7 +3,7 @@
 # Force full path awareness so the background daemon can find your binaries
 export PATH="/usr/sbin:/usr/bin:/sbin:/bin"
 
-# Give the serial bus a moment to clear on service restarts
+# Give the modem serial interface a moment to clear on service restarts
 sleep 3
 
 SECRETS_FILE="/root/puli_gps_secrets"
@@ -19,19 +19,9 @@ else
     exit 1
 fi
 
-# Set state directory to track position history across loops
-STATE_DIR="/tmp/puli_gps"
-mkdir -p "$STATE_DIR"
-LAST_LAT_FILE="$STATE_DIR/last_lat"
-LAST_LON_FILE="$STATE_DIR/last_lon"
-
-if [ -f "$LAST_LAT_FILE" ] && [ -f "$LAST_LON_FILE" ]; then
-    LAST_LAT=$(cat "$LAST_LAT_FILE")
-    LAST_LON=$(cat "$LAST_LON_FILE")
-else
-    LAST_LAT=90
-    LAST_LON=0
-fi
+# In-memory initialization only. Every restart forces a publish.
+LAST_LAT=90
+LAST_LON=0
 
 ensure_gps_on() {
     STATE=$(gl_modem -B "$MODEM_BUS" AT "AT+QGPS?" | grep "+QGPS:" | cut -d' ' -f2 | tr -d '\r\n')
@@ -105,8 +95,7 @@ while true; do
                 PAYLOAD="{\"ts\":\"$TS\",\"lat\":\"$CUR_LAT\",\"lon\":\"$CUR_LON\",\"alt\":$ALT,\"speed\":$CUR_SPD,\"course\":$CRS,\"sat\":$SAT}"
                 
                 if mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -u "$MQTT_USER" -P "$MQTT_PASS" -t "$MQTT_TOPIC" -m "$PAYLOAD"; then
-                    echo "$CUR_LAT" > "$LAST_LAT_FILE"
-                    echo "$CUR_LON" > "$LAST_LON_FILE"
+                    # Update local script memory variables only
                     LAST_LAT=$CUR_LAT
                     LAST_LON=$CUR_LON
                     echo "[$(date +%T)] MQTT Update Sent (Speed: $CUR_SPD km/h)"
