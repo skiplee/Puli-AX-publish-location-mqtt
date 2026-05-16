@@ -3,7 +3,7 @@
 # --- Configuration & Secrets ---
 SECRETS_FILE="/root/puli_gps_secrets"
 MODEM_BUS="1-1.2"
-SLEEP_INTERVAL=10
+SLEEP_INTERVAL=5
 MIN_DISTANCE=5.0
 MIN_SPEED=1.0
 
