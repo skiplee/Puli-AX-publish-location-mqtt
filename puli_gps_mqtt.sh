@@ -53,7 +53,7 @@ safe_read_qgpsloc() {
   echo "$BYTES" | grep -m 1 "+QGPSLOC" 2>/dev/null || true
 }
 
-# ===== GNSS init (use the verified start command) =====
+# ===== GNSS init (unchanged, assumes modem already in good state) =====
 init_gnss() {
   echo "$(date -Is) GNSS init" >> "$LOG"
   printf "ATE0\rAT+QGPS=1\rAT+QGPS?\r" > "$GPS_DEV"
@@ -89,6 +89,9 @@ while true; do
     sleep "$INTERVAL"
     continue
   fi
+
+  # flush any stale data before requesting a new fix
+  timeout 1 dd if="$GPS_DEV" bs=256 count=1 >/dev/null 2>&1
 
   # request a location (non-blocking)
   echo -e "AT+QGPSLOC=2\r" > "$GPS_DEV"
