@@ -1,170 +1,90 @@
 #!/bin/sh
 
-# 1 = publish every INTERVAL regardless of filters; 0 = normal behavior
-TROUBLESHOOTING=1     
+# --- Configuration & Secrets ---
+SECRETS_FILE="/root/puli_gps_secrets"
+MODEM_BUS="1-1.2"
+SLEEP_INTERVAL=10
+MIN_DISTANCE=5.0
+MIN_SPEED=1.0
 
-# If another instance of this script is running, exit immediately.
-# Exclude our own PID ($$) from the match.
-if pgrep -f "/root/puli_gps_mqtt.sh" | grep -v "$$" >/dev/null 2>&1; then
-  echo "Already running. Exiting." >&2
-  exit 0
+# Load Secrets
+if [ -f "$SECRETS_FILE" ]; then
+    . "$SECRETS_FILE"
+else
+    exit 1
 fi
 
-# Secrets file must define MQTT_HOST MQTT_USER MQTT_PASS MQTT_TOPIC
-. /root/puli_gps_secrets
+# --- State Variables ---
+LAST_LAT=90
+LAST_LON=0
 
-# ===== Configuration =====
-GPS_DEV="/dev/ttyUSB2"
-INTERVAL=5            # poll interval in seconds (used in troubleshooting mode)
-HEARTBEAT=60         # publish at least this often (seconds)
-STATE_FILE="/tmp/last_gps"
-LOG="/tmp/gps_poll.log"
+# --- Helper: Decision Engine ---
+# Returns 1 if thresholds are met, 0 otherwise
+should_publish() {
+    awk -v lat1="$1" -v lon1="$2" -v lat2="$3" -v lon2="$4" \
+        -v speed="$5" -v min_dist="$6" -v min_speed="$7" 'BEGIN {
+        # Speed trigger (Fastest check)
+        if (speed > min_speed) {
+            print "1"; 
+            exit;
+        }
 
-# on startup force getting a new fix and sending new message by deleting the lkg file
-rm -f "$STATE_FILE"
-
-GNSS_INIT_INTERVAL=300 # re-run GNSS init every N seconds
-
-# ===== Helpers =====
-publish() {
-  mosquitto_pub -h "$MQTT_HOST" -u "$MQTT_USER" -P "$MQTT_PASS" -t "$MQTT_TOPIC" -m "$1"
-}
-
-distance_m() {
-  awk -v lat1="$1" -v lon1="$2" -v lat2="$3" -v lon2="$4" '
-    BEGIN {
-      pi = 3.141592653589793
-      r = 6371000
-      x = (lon2-lon1) * pi/180 * cos((lat1+lat2)*pi/360)
-      y = (lat2-lat1) * pi/180
-      print sqrt(x*x + y*y) * r
+        # Distance trigger (Trig check)
+        PI = 3.1415926535;
+        deg2meters = 111319;
+        rad = lat2 * (PI / 180);
+        lonscl = cos(rad);
+        dy = (lat2 - lat1) * deg2meters;
+        dx = (lon2 - lon1) * deg2meters * lonscl;
+        dist = sqrt((dx*dx) + (dy*dy));
+        
+        if (dist >= min_dist) print "1";
+        else print "0";
     }'
 }
 
-# Non-blocking read for +QGPSLOC (arg = seconds to wait for grep)
-safe_read_qgpsloc() {
-  TIMEOUT_SEC=${1:-3}
-  RAW=$(timeout "$TIMEOUT_SEC" grep -m 1 "+QGPSLOC" "$GPS_DEV" 2>/dev/null)
-  if [ -n "$RAW" ]; then
-    echo "$RAW"
-    return 0
-  fi
-  BYTES=$(timeout 1 dd if="$GPS_DEV" bs=1 count=128 2>/dev/null)
-  echo "$BYTES" | grep -m 1 "+QGPSLOC" 2>/dev/null || true
+ensure_gps_on() {
+    STATE=$(gl_modem -B "$MODEM_BUS" AT AT+QGPS? | grep "+QGPS:" | cut -d' ' -f2 | tr -d '\r\n')
+    if [ "$STATE" != "1" ]; then
+        gl_modem -B "$MODEM_BUS" AT AT+QGPS=1 > /dev/null
+        sleep 2
+    fi
 }
 
-# ===== GNSS init (use the verified start command) =====
-init_gnss() {
-  echo "$(date -Is) GNSS init" >> "$LOG"
-  printf "ATE0\rAT+QGPS=1\rAT+QGPS?\r" > "$GPS_DEV"
-  sleep 1
-  timeout 1 dd if="$GPS_DEV" bs=1 count=128 2>/dev/null | hexdump -C >> "$LOG" 2>/dev/null || true
-}
-
-# ===== Device holder check =====
-device_held_by() {
-    fuser "$GPS_DEV" 2>/dev/null
-}
-
-# ===== Start =====
-echo "START $(date -Is)" >> "$LOG"
-init_gnss
-LAST_HEARTBEAT=$(date +%s)
-LAST_GNSS_INIT=$(date +%s)
-
-# ===== Main loop =====
+# --- Main Loop ---
 while true; do
-  NOW=$(date +%s)
+    ensure_gps_on
+    RAW_DATA=$(gl_modem -B "$MODEM_BUS" AT AT+QGPSLOC?)
 
-  # periodic GNSS re-init
-  if [ $((NOW - LAST_GNSS_INIT)) -ge $GNSS_INIT_INTERVAL ]; then
-    init_gnss
-    LAST_GNSS_INIT=$NOW
-  fi
+    if echo "$RAW_DATA" | grep -q "+QGPSLOC:"; then
+        GPS_CSV=$(echo "$RAW_DATA" | sed 's/+QGPSLOC: //g' | tr -d '\r\n ')
+        CUR_LAT=$(echo "$GPS_CSV" | cut -d',' -f2)
+        CUR_LON=$(echo "$GPS_CSV" | cut -d',' -f3)
+        CUR_SPD=$(echo "$GPS_CSV" | cut -d',' -f8)
 
-  # skip if device held
-  HOLDER=$(device_held_by)
-  if [ -n "$HOLDER" ]; then
-    echo "$(date -Is) device held by: $HOLDER" >> "$LOG"
-    sleep "$INTERVAL"
-    continue
-  fi
+        if [ -n "$CUR_LAT" ] && [ -n "$CUR_LON" ]; then
+            # Binary decision: 1 or 0
+            if [ "$(should_publish "$LAST_LAT" "$LAST_LON" "$CUR_LAT" "$CUR_LON" "$CUR_SPD" "$MIN_DISTANCE" "$MIN_SPEED")" -eq 1 ]; then
+                
+                # Only parse these if we are actually sending the message
+                T_RAW=$(echo "$GPS_CSV" | cut -d',' -f1)
+                ALT=$(echo "$GPS_CSV" | cut -d',' -f5)
+                CRS=$(echo "$GPS_CSV" | cut -d',' -f7)
+                D_RAW=$(echo "$GPS_CSV" | cut -d',' -f10)
+                SAT=$(echo "$GPS_CSV" | cut -d',' -f11)
 
-  # request a location (non-blocking)
-  echo -e "AT+QGPSLOC=2\r" > "$GPS_DEV"
-  RAW=$(safe_read_qgpsloc 3)
-
-  TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  NOW=$(date +%s)
-
-  if [ -z "$RAW" ] || echo "$RAW" | grep -q "+QGPSLOC: 0"; then
-    publish "{\"ts\":\"$TS\",\"fix\":0,\"lat\":null,\"lon\":null,\"alt\":null,\"speed\":null,\"course\":null,\"sat\":0}"
-    echo "$(date -Is) NO FIX or empty response" >> "$LOG"
-    sleep "$INTERVAL"
-    continue
-  fi
-
-  # parse QGPSLOC fields
-  LAT=$(echo "$RAW" | cut -d',' -f2)
-  LON=$(echo "$RAW" | cut -d',' -f3)
-  ALT=$(echo "$RAW" | cut -d',' -f5)
-  FIX=$(echo "$RAW" | cut -d',' -f6)
-  SPEED=$(echo "$RAW" | cut -d',' -f8)
-  COURSE=$(echo "$RAW" | cut -d',' -f9)
-  SAT=$(echo "$RAW" | cut -d',' -f11)
-
-  # troubleshooting mode: publish every INTERVAL
-  if [ "$TROUBLESHOOTING" -eq 1 ]; then
-    publish "{\"ts\":\"$TS\",\"lat\":$LAT,\"lon\":$LON,\"alt\":$ALT,\"fix\":$FIX,\"speed\":$SPEED,\"course\":$COURSE,\"sat\":$SAT}"
-    echo "$(date -Is) PUBLISHED (troubleshoot) $LAT,$LON fix=$FIX sat=$SAT" >> "$LOG"
-    sleep "$INTERVAL"
-    continue
-  fi
-
-  # normal filters: require 3D fix and minimum satellites
-  if [ "$FIX" -ne 3 ] || [ "$SAT" -lt 4 ]; then
-    publish "{\"ts\":\"$TS\",\"fix\":0,\"lat\":null,\"lon\":null,\"alt\":null,\"speed\":null,\"course\":null,\"sat\":$SAT}"
-    echo "$(date -Is) insufficient fix sat=$SAT fix=$FIX" >> "$LOG"
-    sleep "$INTERVAL"
-    continue
-  fi
-
-  # load last point and apply movement/implausible jump filters
-  SHOULD_PUBLISH=false
-  if [ -f "$STATE_FILE" ]; then
-    LAST_LAT=$(cut -d',' -f1 "$STATE_FILE")
-    LAST_LON=$(cut -d',' -f2 "$STATE_FILE")
-    LAST_TIME=$(cut -d',' -f3 "$STATE_FILE")
-    DIST=$(distance_m "$LAST_LAT" "$LAST_LON" "$LAT" "$LON")
-    DT=$((NOW - LAST_TIME))
-    [ "$DT" -lt 1 ] && DT=1
-    IMP_MS=$(awk -v d="$DIST" -v t="$DT" 'BEGIN{print d/t}')
-    IMP_KPH=$(awk -v v="$IMP_MS" 'BEGIN{print v*3.6}')
-    if awk "BEGIN{exit !($IMP_KPH > 300)}"; then
-      echo "$(date -Is) impossible jump: $IMP_KPH kph" >> "$LOG"
-      sleep "$INTERVAL"
-      continue
+                # ISO 8601 Timestamp
+                TS="20${D_RAW:4:2}-${D_RAW:2:2}-${D_RAW:0:2}T${T_RAW:0:2}:${T_RAW:2:2}:${T_RAW:4:2}Z"
+                
+                PAYLOAD="{\"ts\":\"$TS\",\"lat\":$CUR_LAT,\"lon\":$CUR_LON,\"alt\":$ALT,\"speed\":$CUR_SPD,\"course\":$CRS,\"sat\":$SAT}"
+                
+                if mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -u "$MQTT_USER" -P "$MQTT_PASS" -t "$MQTT_TOPIC" -m "$PAYLOAD"; then
+                    LAST_LAT=$CUR_LAT
+                    LAST_LON=$CUR_LON
+                    echo "[$(date +%T)] MQTT Update Sent (Speed: $CUR_SPD km/h)"
+                fi
+            fi
+        fi
     fi
-    MOVED=$(awk "BEGIN{exit !($DIST > 5)}"; echo $?)
-    FAST=$(awk "BEGIN{exit !($SPEED > 1)}"; echo $?)
-    if [ "$MOVED" = 0 ] || [ "$FAST" = 0 ]; then
-      SHOULD_PUBLISH=true
-    fi
-  else
-    SHOULD_PUBLISH=true
-  fi
-
-  # heartbeat
-  if [ $((NOW - LAST_HEARTBEAT)) -ge $HEARTBEAT ]; then
-    SHOULD_PUBLISH=true
-    LAST_HEARTBEAT=$NOW
-  fi
-
-  if [ "$SHOULD_PUBLISH" = true ]; then
-    publish "{\"ts\":\"$TS\",\"lat\":$LAT,\"lon\":$LON,\"alt\":$ALT,\"fix\":$FIX,\"speed\":$SPEED,\"course\":$COURSE,\"sat\":$SAT}"
-    echo "$LAT,$LON,$NOW" > "$STATE_FILE"
-    echo "$(date -Is) PUBLISHED $LAT,$LON fix=$FIX sat=$SAT" >> "$LOG"
-  fi
-
-  sleep "$INTERVAL"
+    sleep "$SLEEP_INTERVAL"
 done
