@@ -127,8 +127,10 @@ while true; do
     elif echo "$RAW_DATA" | grep -q "ERROR" || [ -z "$RAW_DATA" ]; then
         DIAG_STATUS="Modem Channel Stalled/Plain Error"
     fi
-    
-    PUBLISH_TRIGGER=$([ "$TIMER" -ge "$HEARTBEAT_INTERVAL" ] ? echo "1" : echo "$PUBLISH_TRIGGER")
+
+    if [ "$TIMER" -ge "$HEARTBEAT_INTERVAL" ]; then
+        PUBLISH_TRIGGER=1
+    fi
     
     if [ "$PUBLISH_TRIGGER" -eq 1 ]; then
         if [ "$HAVE_FIX" -eq 1 ]; then
