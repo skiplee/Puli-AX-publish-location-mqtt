@@ -122,6 +122,9 @@ mqtt:
 ## My deployment script
 
 It's not the most elegant; I ssh into the Puli and paste this snippet:
+```
+ssh root@192.168.8.1
+```
 
 ```
 # fetch the service script and the main script from your repo (raw URLs)
